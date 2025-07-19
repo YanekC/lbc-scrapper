@@ -49,9 +49,9 @@ def find_next_node_id():
     raise Exception(f"Failed to retrieve node ID from Leboncoin")
 
     
-def load_new_data(node_id:str):
+def load_new_data(node_id:str, search_string_moto_brand:str, search_string_text:str):
     logger.info("Starting to load new data from Leboncoin")
-    searchUrl = f'https://www.leboncoin.fr/_next/data/{node_id}/recherche.json?text=gsxr piste&sort=time&order=desc'
+    searchUrl = f'https://www.leboncoin.fr/_next/data/{node_id}/recherche.json?category=3&text={search_string_text}&u_moto_brand={search_string_moto_brand}&sort=time&order=desc'
     annonces = []
 
     flaresolverrData = {
@@ -105,10 +105,10 @@ def load_new_data(node_id:str):
     
     return annonces
 
-def load_older_data():
+def load_older_data(file_name:str):
     logger.info("Loading older data from CSV file")
     try:
-        with open('annonces.csv', mode='r') as file:
+        with open(file_name, mode='r') as file:
             reader = csv.DictReader(file, delimiter=';')
             annonces = [Annonce(**row) for row in reader]
         logger.info(f"Successfully loaded {len(annonces)} older annonces from CSV")
@@ -141,10 +141,10 @@ def merge_annonces(annonces, new_annonces):
     logger.info(f"Merge completed: {len(merged)} total annonces, {duplicates_removed} duplicates removed")
     return merged
 
-def write_annonces_to_csv(annonces):
+def write_annonces_to_csv(file_name:str,annonces):
     logger.info(f"Writing {len(annonces)} annonces to CSV file")
     try:
-        with open('annonces.csv', mode='w', newline='') as file:
+        with open(file_name, mode='w', newline='') as file:
             fieldnames = annonces[0]._fields
             writer = csv.DictWriter(file, fieldnames=fieldnames, delimiter=';')
             writer.writeheader()
@@ -154,15 +154,31 @@ def write_annonces_to_csv(annonces):
     except Exception as e:
         logger.error(f"Error writing to CSV file: {e}")
 
+def get_file_name(search_string_moto_brand:str, search_string_text:str):
+    """
+    Generate a file name based on the search parameters.
+    This is used to save the search results in a structured way.
+    """
+    sanitized_brand = re.sub(r'\W+', '_', search_string_moto_brand).upper()
+    sanitized_text = re.sub(r'\W+', '_', search_string_text).lower()
+    return f'annonces_{sanitized_brand}_{sanitized_text}.csv'
+
+def load_search_then_save(node_id:str, search_string_moto_brand:str, search_string_text:str):
+    file_name = get_file_name(search_string_moto_brand, search_string_text)
+    annonces = load_older_data(file_name)
+    #Sleep for 2 seconds to avoid rate limiting
+    time.sleep(2)
+    new_annonces = load_new_data(node_id,search_string_moto_brand,search_string_text)
+    annonces = merge_annonces(annonces, new_annonces)
+    logger.info("Sorting annonces by publication date")
+    annonces.sort(key=lambda x: x.date_publication, reverse=True)
+    write_annonces_to_csv(file_name,annonces)
+
 # Main execution
 logger.info("Starting LBC scrapper execution")
-annonces = load_older_data()
 node_id = find_next_node_id()
-#Sleep for 2 seconds to avoid rate limiting
-time.sleep(2)
-new_annonces = load_new_data(node_id)
-annonces = merge_annonces(annonces, new_annonces)
-logger.info("Sorting annonces by publication date")
-annonces.sort(key=lambda x: x.date_publication, reverse=True)
-write_annonces_to_csv(annonces)
+load_search_then_save(node_id, 'SUZUKI', 'gsxr piste')
+load_search_then_save(node_id, 'YAMAHA', 'r6 piste')
+load_search_then_save(node_id, 'HONDA', 'cbr 600 rr piste')
+load_search_then_save(node_id, 'KAWASAKI', 'zx6r piste')
 logger.info("LBC scrapper execution completed")
